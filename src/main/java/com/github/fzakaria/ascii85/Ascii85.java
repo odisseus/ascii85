@@ -1,10 +1,11 @@
 package com.github.fzakaria.ascii85;
 
-import java.math.BigDecimal;
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import java.util.regex.Pattern;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.PrimitiveIterator;
+import java.util.stream.IntStream;
 
 /**
  * A very simple class that helps encode/decode for Ascii85 / base85
@@ -22,8 +23,6 @@ public class Ascii85 {
             85 * 85 * 85,
             85 * 85 * 85 *85
     };
-
-    private static Pattern REMOVE_WHITESPACE = Pattern.compile("\\s+");
 
     private Ascii85() {
     }
@@ -87,62 +86,57 @@ public class Ascii85 {
      * @param chars The input characters that are base85 encoded.
      * @return The binary data decoded from the input
      */
-    public static byte[] decode(String chars) {
+    public static byte[] decode(CharSequence chars) {
         if (chars == null) {
             throw new IllegalArgumentException("You must provide a non-null input");
         }
-        // Because we perform compression when encoding four bytes of zeros to a single 'z', we need
-        // to scan through the input to compute the target length, instead of just subtracting 20% of
-        // the encoded text length.
-        final int inputLength = chars.length();
-        int zCount = 0;
-        for(int i = 0 ; i < inputLength; i++) {
-            if(chars.charAt(i) == 'z') ++ zCount;
-        }
-        int computedLength = 4 * zCount + 4 * (inputLength - zCount) / 5;
-        ByteBuffer bytebuff = ByteBuffer.allocate(computedLength);
-        //1. Whitespace characters may occur anywhere to accommodate line length limitations. So lets strip it.
-        chars = REMOVE_WHITESPACE.matcher(chars).replaceAll("");
         //Since Base85 is an ascii encoder, we don't need to get the bytes as UTF-8.
-        byte[] payload = chars.getBytes(StandardCharsets.US_ASCII);
-        byte[] chunk = new byte[5];
+        //1. Whitespace characters may occur anywhere to accommodate line length limitations. So lets strip it.
+        IntStream validChars = chars.chars().filter(x -> x == 'z' || (x >= '!' && x <= 'u'));
+        
+        List<byte[]> decodedChunks = new LinkedList<>();        
+        
+        PrimitiveIterator.OfInt payload = validChars.iterator();
+        byte[] inputChunk = new byte[5];
         int chunkIndex = 0;
-        for(int i = 0 ; i < payload.length; i++) {
-            byte currByte = payload[i];
+        while(payload.hasNext()) {
+            byte currByte = payload.next().byteValue();
             //Because all-zero data is quite common, an exception is made for the sake of data compression,
             //and an all-zero group is encoded as a single character "z" instead of "!!!!!".
             if (currByte == 'z') {
                 if (chunkIndex > 0) {
                     throw new IllegalArgumentException("The payload is not base 85 encoded.");
                 }
-                chunk[chunkIndex++] = '!';
-                chunk[chunkIndex++] = '!';
-                chunk[chunkIndex++] = '!';
-                chunk[chunkIndex++] = '!';
-                chunk[chunkIndex++] = '!';
+                Arrays.fill(inputChunk, (byte) '!');
+                chunkIndex += 5;
             } else {
-                chunk[chunkIndex++] = currByte;
+                inputChunk[chunkIndex++] = currByte;
             }
 
             if (chunkIndex == 5) {
-                bytebuff.put(decodeChunk(chunk));
-                Arrays.fill(chunk, (byte) 0);
+                decodedChunks.add(decodeChunk(inputChunk));
+                Arrays.fill(inputChunk, (byte) 0);
                 chunkIndex = 0;
             }
         }
 
         //If we didn't end on 0, then we need some padding
         if (chunkIndex > 0) {
-            int numPadded = chunk.length - chunkIndex;
-            Arrays.fill(chunk, chunkIndex, chunk.length, (byte)'u');
-            byte[] paddedDecode = decodeChunk(chunk);
-            for(int i = 0 ; i < paddedDecode.length - numPadded; i++) {
-                bytebuff.put(paddedDecode[i]);
-            }
+            int numPadded = inputChunk.length - chunkIndex;
+            Arrays.fill(inputChunk, chunkIndex, inputChunk.length, (byte)'u');
+            byte[] paddedDecode = decodeChunk(inputChunk);
+            byte[] result = Arrays.copyOf(paddedDecode, paddedDecode.length - numPadded);
+            decodedChunks.add(result);
         }
 
-        bytebuff.flip();
-        return Arrays.copyOf(bytebuff.array(),bytebuff.limit());
+        //decodedChunks.flip();
+        int outputLength = decodedChunks.stream().mapToInt(arr -> arr.length).sum();
+        ByteBuffer outputBuffer = ByteBuffer.allocate(outputLength);
+        for(byte[] xxx: decodedChunks){
+            outputBuffer.put(xxx);
+        }
+        outputBuffer.flip();
+        return Arrays.copyOf(outputBuffer.array(),outputBuffer.limit());
     }
 
     private static byte[] decodeChunk(byte[] chunk) {

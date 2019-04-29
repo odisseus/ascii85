@@ -4,7 +4,6 @@ import org.junit.Ignore;
 import org.junit.Test;
 
 import java.nio.charset.StandardCharsets;
-import java.security.SecureRandom;
 
 import static org.junit.Assert.*;
 import static org.hamcrest.CoreMatchers.is;
@@ -93,11 +92,6 @@ public class Ascii85Test {
         assertArrayEquals(empty, decoded);
     }
 
-    /**
-     * This test is ignored at the moment, because it requires setting the heap space quite large.
-     * Which is something I don't want to make default.
-     * It is a good stress test nonetheless
-     */
     @Ignore
     @Test
     public void overflowTest() {
@@ -106,8 +100,7 @@ public class Ascii85Test {
         for (int i = 0; i < N; ++i) {
             sb.append("-");
         }
-        final String encodedString = sb.toString();
-        assertNotNull(Ascii85.decode(encodedString));
+        assertNotNull(Ascii85.decode(sb));
     }
 
     @Test
